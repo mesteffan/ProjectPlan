@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Resource Planner – Modern</title>
+<!-- Added Tailwind CSS for modern styling -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- Added Google Fonts for better typography -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /*
+    Modernized CSS using a mix of Tailwind's @apply for existing classes
+    and new custom styles. This approach keeps the JS intact while
+    overhauling the look and feel.
+  */
+  :root {
+    /* Refreshed color palette using a modern blue/slate theme */
+    --line: #e2e8f0;      /* slate-200 */
+    --ink: #1e293b;       /* slate-800 */
+    --muted-bg: #f8fafc;  /* slate-50 */
+    --accent: #38bdf8;    /* sky-400 */
+    --accent-hover: #0ea5e9; /* sky-500 */
+    --secondary-bg: #f1f5f9; /* slate-100 */
+    --secondary-text: #334155; /* slate-700 */
+    --white: #ffffff;
+    --black: #000000;
+  }
+
+  /* Base body styles */
+  body {
+    font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Arial, sans-serif;
+    color: var(--ink);
+    background-color: var(--muted-bg);
+  }
+
+  /* Custom styles for elements that are dynamically generated or need specific overrides */
+  textarea {
+    @apply w-full p-2 border border-slate-300 rounded-md shadow-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition duration-150 ease-in-out text-sm font-mono bg-white;
+  }
+
+  /* SVG specific styles that can't use Tailwind classes directly */
+  #grid {
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .slice {
+    cursor: grab;
+  }
+  .dragging {
+    cursor: grabbing !important;
+  }
+
+  /* Styling for the custom multi-select dropdown - REMOVED */
+</style>
+</head>
+<body class="h-screen flex flex-col antialiased">
+
+<!-- Header: Modernized with Tailwind CSS classes -->
+<header class="flex items-center gap-4 p-3 border-b border-slate-200 bg-white shadow-sm">
+  <h1 class="text-lg font-semibold text-slate-800">Resource Planner</h1>
+  <div class="flex-1"></div>
+  <div id="multiSelectContainer"></div>
+  <!-- Buttons: Restyled with Tailwind for a modern look -->
+  <button id="build" class="px-4 py-2 text-sm font-semibold text-white bg-sky-500 rounded-lg shadow-sm hover:bg-sky-600 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500">Build / Rebuild</button>
+  <button id="clear" class="px-4 py-2 text-sm font-semibold text-slate-700 bg-slate-100 rounded-lg shadow-sm hover:bg-slate-200 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-400">Clear</button>
+  <button id="export" class="px-4 py-2 text-sm font-semibold text-slate-700 bg-slate-100 rounded-lg shadow-sm hover:bg-slate-200 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-400">Export CSV</button>
+</header>
+
+<!-- Main content wrapper -->
+<div class="flex flex-1 min-h-0">
+  <!-- Left Sidebar -->
+  <div class="w-[360px] border-r border-slate-200 p-4 overflow-y-auto bg-white flex-shrink-0">
+    <div class="space-y-6">
+      <div>
+        <h3 class="text-sm font-medium text-slate-600 mb-2">Teams (team,color)</h3>
+        <textarea id="teams">Design,#F97316
+Engineering,#2563EB
+QA,#16A34A
+PM,#9333EA</textarea>
+      </div>
+      <div>
+        <h3 class="text-sm font-medium text-slate-600 mb-2">People (name,team)</h3>
+        <textarea id="people" class="h-48">Alice Brown,Design
+Ben Carter,Engineering
+Chloe Diaz,QA
+Derek Evans,Engineering
+Priya Gupta,PM</textarea>
+      </div>
+      <div>
+        <h3 class="text-sm font-medium text-slate-600 mb-2">Projects (one per line)</h3>
+        <textarea id="projects" class="h-48">Apollo
+Borealis
+Comet
+Delta
+Eclipse</textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Panel with SVG Grid -->
+  <div class="flex-1 flex flex-col min-w-0 bg-slate-50">
+    <div class="flex-1 overflow-auto p-4">
+      <div class="bg-white rounded-lg shadow-sm border border-slate-200">
+        <svg id="grid" width="1800" height="1100" aria-label="Grid"></svg>
+      </div>
+    </div>
+    <div id="status" class="text-xs text-slate-500 px-4 py-2 border-t border-slate-200 bg-white">Ready.</div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const svg = document.getElementById('grid');
+  const status = document.getElementById('status');
+  const BTN = id=>document.getElementById(id);
+
+  // Layout constants
+  const LEFT = 240;
+  const HEADER_Y = 20; // New constant for the header's fixed top position
+  let TOP; // The grid's top position will be calculated from the header height.
+  const BASE_ROWH = 100;
+  const COLS = 4;
+  let COLW = 280;
+  const quarters = ['Q1','Q2','Q3','Q4'];
+  let dynamicHeaderH = 140;
+  const HEADER_BASE_PADDING = 60; // For title, etc.
+  const padBase = 24;
+  const EXTRA_TOP_PAD_FIRST_ROW = 18;
+  const gap = 64;
+  const STAGE_GAP = 60;
+  const STAGE_OFFSET_X = 32;
+  const STAGE_OFFSET_Y = 80; // Increased to give header text more space
+
+  // Slice visuals
+  const SLICE_R = 27;
+  const SLICE_LABEL_R = 0.62;
+  const SLICE_LABEL_FONTSIZE = 11;
+
+  let teams = {};
+  let people = [];
+  let projects = [];
+  let slices = [];
+  let rowHeights = [];
+  let seq = 1;
+  let highlightedPersonIds = [];
+  
+  // State for multi-slice selection and dragging
+  let multiSelectIds = new Set();
+  let draggingSlices = [];
+  let dragStartPoint = null;
+
+  // Color variables from CSS for JS usage
+  const colors = {
+      line: getComputedStyle(document.documentElement).getPropertyValue('--line').trim(),
+      ink: getComputedStyle(document.documentElement).getPropertyValue('--ink').trim(),
+      secondaryText: getComputedStyle(document.documentElement).getPropertyValue('--secondary-text').trim(),
+      white: getComputedStyle(document.documentElement).getPropertyValue('--white').trim(),
+      black: getComputedStyle(document.documentElement).getPropertyValue('--black').trim(),
+      q1Bg: '#f0f9ff', // sky-50
+      q2Bg: '#fafafa', // neutral-50
+  };
+
+  function toInitials(n){const p=n.trim().split(/\s+/).filter(Boolean); if(p.length===0) return ''; if(p.length===1) return p[0].slice(0,2).toUpperCase(); return (p[0][0]+p[p.length-1][0]).toUpperCase();}
+  function color(team){return teams[team]||'#999'}
+  function el(n){ return document.createElementNS('http://www.w3.org/2000/svg', n); }
+
+  function textAt(x,y,txt,fs=12,fill=colors.white,anchor='middle'){
+    const e=el('text'); e.setAttribute('x',x); e.setAttribute('y',y); e.setAttribute('font-size',fs); e.setAttribute('font-weight', '500'); e.setAttribute('dominant-baseline','middle'); e.setAttribute('text-anchor',anchor); e.setAttribute('fill',fill); e.textContent=txt; return e;
+  }
+
+  function initFromText(){
+    teams = {}; document.getElementById('teams').value.split(/\r?\n/).forEach(l=>{l=l.trim(); if(!l) return; const i=l.indexOf(','); if(i<0) return; teams[l.slice(0,i).trim()] = l.slice(i+1).trim();});
+    people = []; let pid=1; document.getElementById('people').value.split(/\r?\n/).forEach(l=>{l=l.trim(); if(!l) return; const i=l.indexOf(','); if(i<0) return; const name=l.slice(0,i).trim(); const team=l.slice(i+1).trim(); people.push({id:pid++, name, team, initials:toInitials(name)});});
+    projects = document.getElementById('projects').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean).sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base'}));
+  }
+
+  function populatePersonFilter() {
+    const container = document.getElementById('multiSelectContainer');
+    container.innerHTML = '';
+
+    // Use a standard <select> element with the 'multiple' attribute
+    const select = document.createElement('select');
+    select.multiple = true;
+    select.className = 'bg-white border border-slate-300 rounded-lg px-2 py-1 text-sm text-slate-700 shadow-sm focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 focus:outline-none';
+    // Setting a size makes it appear as a list box
+    select.setAttribute('size', '4');
+    
+    // Add a title to instruct users on how to use it
+    select.setAttribute('title', 'Hold Ctrl (or Cmd) to select multiple people');
+
+    people.forEach(p => {
+        const option = document.createElement('option');
+        option.value = p.id;
+        option.textContent = p.name;
+        option.className = 'p-1';
+        select.appendChild(option);
+    });
+
+    select.addEventListener('change', () => {
+        const selectedOptions = Array.from(select.selectedOptions);
+        highlightedPersonIds = selectedOptions.map(opt => parseInt(opt.value, 10));
+        drawSlices();
+    });
+    
+    const instruction = document.createElement('span');
+    instruction.textContent = 'Highlight People:';
+    instruction.className = 'text-sm font-medium text-slate-700 mr-2';
+
+    container.appendChild(instruction);
+    container.appendChild(select);
+  }
+
+  // Close dropdown if clicked outside - REMOVED
+
+  function rowTop(r){ let y = TOP; for(let i=0;i<r;i++) y += rowHeights[i]; return y; }
+  function cellBounds(r,q){ return {x:LEFT+q*COLW, y:rowTop(r), w:COLW, h:rowHeights[r]}; }
+  // This function now uses the fixed HEADER_Y, decoupling it from the grid's TOP position.
+  function headerBounds(q){ return {x:LEFT+q*COLW, y:HEADER_Y, w:COLW, h:dynamicHeaderH}; }
+
+  function sizeSVG(){ 
+    const totalH = rowTop(projects.length-1) + rowHeights[rowHeights.length-1];
+    // The SVG width is now determined directly by the calculated column widths and padding.
+    const w = LEFT + COLS*COLW + 60; 
+    const h = Math.max(totalH + 60, 800); 
+    svg.setAttribute('width', w); 
+    svg.setAttribute('height', h); 
+  }
+
+  function clearSVG(){ while(svg.firstChild) svg.removeChild(svg.firstChild); }
+
+  function slicePath(cx,cy,r,piece){ const ang0 = piece * Math.PI/2; const ang1 = ang0 + Math.PI/2; const x0 = cx + r*Math.cos(ang0), y0 = cy + r*Math.sin(ang0); const x1 = cx + r*Math.cos(ang1), y1 = cy + r*Math.sin(ang1); return `M ${cx} ${cy} L ${x0} ${y0} A ${r} ${r} 0 0 1 ${x1} ${y1} Z`; }
+
+  function buildSlices() {
+    slices = [];
+    seq = 1;
+    people.forEach(p => {
+        for (let q = 0; q < 4; q++) {
+            for (let piece = 0; piece < 4; piece++) {
+                // Position will be set later by recomputeHeaderHeightAndLayoutSlices
+                slices.push({
+                    id: seq++,
+                    person_id: p.id,
+                    quarter: q,
+                    piece,
+                    r: SLICE_R,
+                    cx: 0, // Placeholder
+                    cy: 0, // Placeholder
+                    assigned: false,
+                    project_index: null
+                });
+            }
+        }
+    });
+}
+
+  function colorForSlice(s){ const team = people.find(pp=>pp.id===s.person_id).team; return color(team); }
+  function initialsFor(s){ return people.find(pp=>pp.id===s.person_id).initials; }
+
+  function drawGrid(){
+    // Draw a single, continuous background for the entire header area first.
+    const fullHeaderBg = el('rect');
+    fullHeaderBg.setAttribute('x', LEFT);
+    fullHeaderBg.setAttribute('y', HEADER_Y);
+    fullHeaderBg.setAttribute('width', COLS * COLW);
+    fullHeaderBg.setAttribute('height', dynamicHeaderH);
+    fullHeaderBg.setAttribute('fill', colors.white);
+    fullHeaderBg.setAttribute('stroke', colors.line);
+    svg.appendChild(fullHeaderBg);
+
+    for(let q=0;q<COLS;q++){
+      const hb = headerBounds(q);
+      const hbRect = el('rect'); hbRect.setAttribute('x',hb.x); hbRect.setAttribute('y',hb.y); hbRect.setAttribute('width',hb.w); hbRect.setAttribute('height',hb.h); hbRect.setAttribute('fill', q%2 ? colors.q2Bg : colors.q1Bg); hbRect.setAttribute('stroke', colors.line); svg.appendChild(hbRect);
+      let lbl = textAt(hb.x + hb.w/2, hb.y + 20, quarters[q], 14, colors.ink); lbl.setAttribute('text-anchor','middle'); lbl.setAttribute('font-weight', '600'); svg.appendChild(lbl);
+      let sub = textAt(hb.x + 12, hb.y + 42, 'Drag slices ↓', 11, colors.secondaryText, 'start'); svg.appendChild(sub);
+      const vl = el('line'); vl.setAttribute('x1', hb.x); vl.setAttribute('y1', TOP); vl.setAttribute('x2', hb.x); vl.setAttribute('y2', rowTop(projects.length-1)+rowHeights[rowHeights.length-1]); vl.setAttribute('stroke', colors.line); svg.appendChild(vl);
+    }
+    for(let r=0;r<projects.length;r++){
+      const y = rowTop(r); const h = rowHeights[r];
+      const lb = el('rect'); lb.setAttribute('x',0); lb.setAttribute('y',y); lb.setAttribute('width',LEFT); lb.setAttribute('height',h); lb.setAttribute('fill', r%2 ? colors.white : '#fafafa'); svg.appendChild(lb);
+      const name = textAt(16, y + h/2, projects[r], 14, colors.ink, 'start'); name.setAttribute('dominant-baseline','middle'); svg.appendChild(name);
+      const hl = el('line'); hl.setAttribute('x1',0); hl.setAttribute('y1',y); hl.setAttribute('x2', LEFT + COLS*COLW); hl.setAttribute('y2',y); hl.setAttribute('stroke',colors.line); svg.appendChild(hl);
+      for(let q=0;q<COLS;q++){
+        const b = cellBounds(r,q); const rect = el('rect'); rect.setAttribute('x',b.x); rect.setAttribute('y',b.y); rect.setAttribute('width',b.w); rect.setAttribute('height',b.h); rect.setAttribute('fill',colors.white); rect.setAttribute('stroke','#f8fafc'); svg.appendChild(rect);
+      }
+    }
+    const bottomY = rowTop(projects.length-1)+rowHeights[rowHeights.length-1];
+    const bottom=el('line'); bottom.setAttribute('x1',0); bottom.setAttribute('y1', bottomY); bottom.setAttribute('x2', LEFT + COLS*COLW); bottom.setAttribute('y2', bottomY); bottom.setAttribute('stroke',colors.line); svg.appendChild(bottom);
+  }
+
+  function drawSlices(){
+    svg.querySelectorAll('g.slice').forEach(n=>n.remove());
+    slices.forEach(s=>{
+      const g = el('g'); g.setAttribute('class','slice'); g.setAttribute('data-id', s.id);
+      
+      if (highlightedPersonIds.length > 0 && !highlightedPersonIds.includes(s.person_id)) {
+          g.setAttribute('opacity', '0.1');
+      }
+
+      const isSelected = multiSelectIds.has(s.id);
+      const path = el('path'); 
+      path.setAttribute('d', slicePath(s.cx, s.cy, s.r, s.piece)); 
+      path.setAttribute('fill', colorForSlice(s)); 
+      path.setAttribute('opacity', s.assigned ? '1' : '0.92'); 
+      
+      // Add visual feedback for selected slices
+      if (isSelected) {
+        path.setAttribute('stroke', '#0ea5e9'); // A bright blue to indicate selection
+        path.setAttribute('stroke-width', '3');
+      } else {
+        path.setAttribute('stroke',colors.black); 
+        path.setAttribute('stroke-width','1'); 
+        path.setAttribute('stroke-opacity', '0.2'); 
+      }
+      
+      g.appendChild(path);
+      const mid = (s.piece + 0.5) * Math.PI/2;
+      const lx = s.cx + (SLICE_LABEL_R * s.r) * Math.cos(mid);
+      const ly = s.cy + (SLICE_LABEL_R * s.r) * Math.sin(mid);
+      const label = textAt(lx, ly, initialsFor(s), SLICE_LABEL_FONTSIZE, colors.white, 'middle'); g.appendChild(label);
+      svg.appendChild(g);
+    });
+  }
+
+  function cellCenters(r,q){
+    const b = cellBounds(r,q);
+    const padX = padBase; const padY = padBase + (r===0 ? EXTRA_TOP_PAD_FIRST_ROW : 0);
+    const perRow = Math.max(1, Math.floor((b.w-2*padX)/gap));
+    const perCol = Math.max(1, Math.floor((b.h-2*padY)/gap));
+    const centers=[];
+    for(let rr=0; rr<perCol; rr++){
+      for(let cc=0; cc<perRow; cc++){
+        centers.push({x: b.x + padX + cc*gap, y: b.y + padY + rr*gap});
+      }
+    }
+    return {centers, perRow, perCol, padX, padY};
+  }
+
+  function groupsInCell(r,q){
+    const arr = slices.filter(s=> s.assigned && s.project_index===r && s.quarter===q);
+    const byPerson = new Map();
+    for(const s of arr){ if(!byPerson.has(s.person_id)) byPerson.set(s.person_id, []); byPerson.get(s.person_id).push(s); }
+    return Array.from(byPerson.values());
+  }
+
+  function recomputeRowHeights(){
+    rowHeights = projects.map(_=>BASE_ROWH);
+    for(let r=0;r<projects.length;r++){
+      let requiredH = BASE_ROWH + (r===0?EXTRA_TOP_PAD_FIRST_ROW:0);
+      for(let q=0;q<COLS;q++){
+        const groups = groupsInCell(r,q).length;
+        if(groups>0){
+          const {perRow, padY} = cellCenters(r,q);
+          const rowsNeeded = Math.ceil(groups / perRow);
+          const hNeeded = Math.max(requiredH, padY*2 + rowsNeeded*gap);
+          requiredH = Math.max(requiredH, hNeeded);
+        }
+      }
+      rowHeights[r] = requiredH;
+    }
+  }
+
+  function relayoutAssignedCenters(){
+    for(let r=0;r<projects.length;r++){
+      for(let q=0;q<COLS;q++){
+        const {centers} = cellCenters(r,q);
+        const groups = groupsInCell(r,q);
+        for(let i=0;i<groups.length;i++){
+          const c = centers[Math.min(i, centers.length-1)] || centers[centers.length-1];
+          for(const s of groups[i]){ s.cx = c.x; s.cy = c.y; s.assigned = true; s.project_index = r; }
+        }
+      }
+    }
+  }
+
+  function pickSliceAt(x,y){
+    for(let i=slices.length-1;i>=0;i--){ const s=slices[i]; const dx=x-s.cx, dy=y-s.cy; const dist2=dx*dx+dy*dy; if(dist2>=(s.r*s.r)) continue; let ang=Math.atan2(dy,dx); if(ang<0) ang+=2*Math.PI; const start=s.piece*(Math.PI/2); const end=start+Math.PI/2; if(ang>=start && ang<=end){ return s; } }
+    return null;
+  }
+
+  function toSvg(e){ const p=svg.createSVGPoint(); p.x=e.clientX; p.y=e.clientY; return p.matrixTransform(svg.getScreenCTM().inverse()); }
+
+  svg.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    const p = toSvg(e);
+    const s = pickSliceAt(p.x, p.y);
+
+    if (!s) {
+      // If clicking on empty space without shift, clear selection
+      if (!e.shiftKey) {
+        multiSelectIds.clear();
+        drawSlices();
+      }
+      return;
+    }
+
+    // Shift+Click to toggle selection of individual slices
+    if (e.shiftKey) {
+      if (multiSelectIds.has(s.id)) {
+        multiSelectIds.delete(s.id);
+      } else {
+        multiSelectIds.add(s.id);
+      }
+      drawSlices();
+      return; // Don't start a drag, just modify selection
+    }
+
+    // A regular click starts a drag operation
+    dragStartPoint = { x: p.x, y: p.y };
+
+    // If the clicked slice is part of an existing selection, drag the whole group.
+    if (multiSelectIds.has(s.id)) {
+      draggingSlices = slices.filter(sl => multiSelectIds.has(sl.id));
+    } else {
+      // Otherwise, clear the selection and drag only the single clicked slice.
+      multiSelectIds.clear();
+      draggingSlices = [s];
+    }
+
+    // Store the starting position for each slice being dragged
+    draggingSlices.forEach(ds => {
+      ds.startX = ds.cx;
+      ds.startY = ds.cy;
+    });
+
+    svg.setPointerCapture && svg.setPointerCapture(e.pointerId);
+    svg.classList.add('dragging');
+  });
+
+  svg.addEventListener('pointermove', e => {
+    if (draggingSlices.length === 0) return;
+    e.preventDefault();
+    const p = toSvg(e);
+    const dx = p.x - dragStartPoint.x;
+    const dy = p.y - dragStartPoint.y;
+
+    // Move all dragged slices relative to their starting positions
+    draggingSlices.forEach(s => {
+      s.cx = s.startX + dx;
+      s.cy = s.startY + dy;
+    });
+    drawSlices();
+  });
+
+  function endDrag(e){
+    if (draggingSlices.length === 0) return;
+
+    const p = toSvg(e);
+    // The reference slice determines the target quarter for the whole group
+    const refSlice = draggingSlices[0];
+    const targetQ = refSlice.quarter;
+    let placed = false;
+    let targetR = null;
+
+    // Find the target project row based on the cursor's final position
+    for (let r = 0; r < projects.length; r++) {
+      const b = cellBounds(r, targetQ);
+      if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) {
+        placed = true;
+        targetR = r;
+        break;
+      }
+    }
+    
+    // Update state for all slices in the dragged group
+    draggingSlices.forEach(s => {
+      if (placed) {
+        s.quarter = targetQ; // Align all slices to the target quarter
+        s.project_index = targetR;
+        s.assigned = true;
+      } else {
+        // If not placed in a valid cell, mark as unassigned
+        s.assigned = false;
+        s.project_index = null;
+      }
+    });
+
+    svg.releasePointerCapture && svg.releasePointerCapture(e.pointerId);
+    svg.classList.remove('dragging');
+
+    // Clean up dragging state
+    draggingSlices.forEach(s => { delete s.startX; delete s.startY; });
+    draggingSlices = [];
+    dragStartPoint = null;
+
+    // Trigger a full relayout and redraw of the entire grid
+    recomputeHeaderHeightAndLayoutSlices();
+    recomputeRowHeights();
+    relayoutAssignedCenters();
+    redraw();
+  }
+  
+  svg.addEventListener('pointerup', endDrag); 
+  svg.addEventListener('pointerleave', endDrag);
+
+
+  function recomputeHeaderHeightAndLayoutSlices() {
+    let maxRows = 0;
+
+    const unassignedSlicesByQuarter = COLS > 0 ? Array.from({ length: COLS }, () => new Set()) : [];
+    slices.forEach(s => {
+        if (!s.assigned) {
+            unassignedSlicesByQuarter[s.quarter].add(s.person_id);
+        }
+    });
+
+    // Determine max rows needed for any quarter
+    for (let q = 0; q < COLS; q++) {
+        const peopleCount = unassignedSlicesByQuarter[q].size;
+        if (peopleCount > 0) {
+            const slicesPerRow = Math.max(1, Math.floor((COLW - STAGE_OFFSET_X) / STAGE_GAP));
+            const rowsNeeded = Math.ceil(peopleCount / slicesPerRow);
+            if (rowsNeeded > maxRows) {
+                maxRows = rowsNeeded;
+            }
+        }
+    }
+    maxRows = Math.max(1, maxRows); // Ensure at least 1 row height
+
+    // Set the dynamic header height
+    dynamicHeaderH = HEADER_BASE_PADDING + (maxRows * STAGE_GAP);
+
+    // Position the unassigned slices
+    for (let q = 0; q < COLS; q++) {
+        const hb = headerBounds(q);
+        const peopleInQuarter = Array.from(unassignedSlicesByQuarter[q]);
+        const slicesPerRow = Math.max(1, Math.floor((hb.w - STAGE_OFFSET_X) / STAGE_GAP));
+
+        peopleInQuarter.forEach((person_id, index) => {
+            const col = index % slicesPerRow;
+            const row = Math.floor(index / slicesPerRow);
+            const cx = hb.x + STAGE_OFFSET_X + (col * STAGE_GAP);
+            const cy = hb.y + STAGE_OFFSET_Y + (row * STAGE_GAP);
+
+            slices.forEach(s => {
+                if (!s.assigned && s.person_id === person_id && s.quarter === q) { s.cx = cx; s.cy = cy; }
+            });
+        });
+    }
+}
+
+  function groupCenterFor(r,q,person_id){ const placed = slices.filter(s=> s.assigned && s.project_index===r && s.quarter===q && s.person_id===person_id); if(placed.length){ return {x: placed[0].cx, y: placed[0].cy}; } const {centers} = cellCenters(r,q); const used = new Set(slices.filter(s=> s.assigned && s.project_index===r && s.quarter===q).map(s=> `${s.cx},${s.cy}`)); for(const c of centers){ if(!used.has(`${c.x},${c.y}`)) return c; } return centers.length? centers[centers.length-1] : {x: cellBounds(r,q).x + padBase + SLICE_R, y: cellBounds(r,q).y + padBase + SLICE_R}; }
+
+  function exportCSV(){ const header=['Person','Initials','Team','Quarter','Project','SlicePiece']; const rows = slices.filter(s=>s.assigned && s.project_index!=null).map(s=>{ const p=people.find(pp=>pp.id===s.person_id); return {Person:p.name, Initials:p.initials, Team:p.team, Quarter:quarters[s.quarter], Project:projects[s.project_index], SlicePiece:s.piece}; }); const csv=[header.join(',')].concat(rows.map(r=> header.map(h=>`"${String(r[h]).replace(/"/g,'""')}"`).join(','))).join('\n'); const blob=new Blob([csv],{type:'text/csv'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='allocations.csv'; a.click(); URL.revokeObjectURL(url); }
+
+  function redraw(){ clearSVG(); sizeSVG(); drawGrid(); drawSlices(); }
+  function build(){ 
+    initFromText(); 
+    populatePersonFilter();
+
+    const gridContainerWidth = svg.parentElement.clientWidth;
+    // Calculate the total available width for the columns, considering a minimum content width.
+    const minContentWidth = 1500 - LEFT - 60; // 1500px is the desired minimum SVG width
+    const availableWidth = Math.max(gridContainerWidth - LEFT, minContentWidth);
+    
+    // Distribute the available width across the columns.
+    COLW = Math.max(220, Math.floor(availableWidth / COLS)); 
+    
+    rowHeights = projects.map(_=>BASE_ROWH + EXTRA_TOP_PAD_FIRST_ROW); 
+    buildSlices();
+    recomputeHeaderHeightAndLayoutSlices();
+    TOP = HEADER_Y + dynamicHeaderH + 20; // Calculate initial grid TOP position.
+    recomputeRowHeights(); 
+    relayoutAssignedCenters(); 
+    redraw(); 
+    status.textContent='Planner built successfully.'; 
+  }
+  function clearAll() {
+    slices.forEach(s => { s.assigned = false; s.project_index = null; });
+    rowHeights = projects.map(_ => BASE_ROWH + EXTRA_TOP_PAD_FIRST_ROW);
+    recomputeHeaderHeightAndLayoutSlices();
+    TOP = HEADER_Y + dynamicHeaderH + 20; // Re-calculate grid TOP after clearing.
+    redraw();
+    status.textContent = 'Allocations cleared.';
+  }
+
+  BTN('build').addEventListener('click', build);
+  BTN('clear').addEventListener('click', clearAll);
+  BTN('export').addEventListener('click', exportCSV);
+
+  // Initial build on page load
+  build();
+})();
+</script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
