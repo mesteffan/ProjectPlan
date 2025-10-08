@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Resource Planner – v4.2</title>
+<style>
+  :root{ --line:#e5e7eb; --ink:#111827; --muted:#f3f4f6; --accent:#0ea5e9; }
+  html,body{height:100%}
+  body{margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Arial,sans-serif; color:var(--ink)}
+  header{display:flex; gap:8px; align-items:center; padding:10px 12px; border-bottom:1px solid var(--line)}
+  h1{font-size:16px; margin:0}
+  .sp{flex:1}
+  .btn{border:1px solid var(--line); background:var(--accent); color:#fff; border-radius:8px; padding:6px 10px; cursor:pointer}
+  .btn.secondary{background:var(--muted); color:#111}
+  .wrap{display:flex; height:calc(100% - 52px)}
+  .left{width:340px; border-right:1px solid var(--line); padding:10px; overflow:auto}
+  .left h3{font-size:13px; margin:6px 0}
+  textarea{width:100%; height:120px; font:12px ui-monospace,Menlo,Consolas,monospace}
+  .tall{height:180px}
+  .right{flex:1; display:flex; min-width:0}
+  .gridwrap{flex:1; overflow:auto; padding:10px}
+  svg{display:block; background:#fff; border:1px solid var(--line); border-radius:8px}
+  #grid{ touch-action:none; user-select:none; -webkit-user-select:none }
+  .status{font-size:12px; color:#374151; padding:6px 10px; border-top:1px solid var(--line)}
+  .slice{ cursor:grab }
+  .dragging{ cursor:grabbing !important }
+
+  /* Styles for the custom multi-select dropdown */
+  .multiselect-container { position: relative; display: inline-block; margin-left:16px; }
+  .multiselect-button { background-color: #fff; color: #111; border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; cursor: pointer; min-width: 150px; text-align: left; }
+  .multiselect-panel { display: none; position: absolute; background-color: #fff; min-width: 180px; box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.1); border: 1px solid var(--line); border-radius: 8px; z-index: 1; max-height: 220px; overflow-y: auto; }
+  .multiselect-panel label { color: black; padding: 8px 12px; text-decoration: none; display: flex; align-items:center; gap: 8px; cursor: pointer; font-size: 13px; }
+  .multiselect-panel label:hover { background-color: #f1f1f1; }
+  .multiselect-panel.show { display: block; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Resource Planner – v4.2 (bigger slices, quadrant labels, extra padding)</h1>
+  <div class="sp"></div>
+  <div id="multiSelectContainer"></div>
+  <button id="build" class="btn">Build / Rebuild</button>
+  <button id="clear" class="btn secondary">Clear</button>
+  <button id="export" class="btn secondary">Export CSV</button>
+</header>
+<div class="wrap">
+  <div class="left">
+    <h3>Teams (team,color)</h3>
+    <textarea id="teams">Design,#F97316
+Engineering,#2563EB
+QA,#16A34A
+PM,#9333EA</textarea>
+    <h3>People (name,team)</h3>
+    <textarea id="people" class="tall">Alice Brown,Design
+Ben Carter,Engineering
+Chloe Diaz,QA
+Derek Evans,Engineering
+Priya Gupta,PM</textarea>
+    <h3>Projects (one per line)</h3>
+    <textarea id="projects" class="tall">Apollo
+Borealis
+Comet
+Delta
+Eclipse</textarea>
+  </div>
+  <div class="right">
+    <div class="gridwrap">
+      <svg id="grid" width="1800" height="1100" aria-label="Grid"></svg>
+    </div>
+  </div>
+</div>
+<div id="status" class="status">Ready.</div>
+
+<script>
+(function(){
+  const svg = document.getElementById('grid');
+  const status = document.getElementById('status');
+  const BTN = id=>document.getElementById(id);
+
+  // Layout constants
+  const LEFT = 240;
+  const TOP = 170;
+  const BASE_ROWH = 100;
+  const COLS = 4;
+  let COLW = 280;
+  const quarters = ['Q1','Q2','Q3','Q4'];
+  const HEADER_H = 140;
+  const padBase = 24;
+  const EXTRA_TOP_PAD_FIRST_ROW = 18;
+  const gap = 64;
+  const STAGE_GAP = 60;
+  const STAGE_OFFSET_X = 32;
+  const STAGE_OFFSET_Y = 80;
+
+  // Slice visuals
+  const SLICE_R = 27;
+  const SLICE_LABEL_R = 0.62;
+  const SLICE_LABEL_FONTSIZE = 11;
+
+  let teams = {};
+  let people = [];
+  let projects = [];
+  let slices = [];
+  let rowHeights = [];
+  let seq = 1;
+  let highlightedPersonIds = [];
+
+  function toInitials(n){const p=n.trim().split(/\s+/).filter(Boolean); if(p.length===0) return ''; if(p.length===1) return p[0].slice(0,2).toUpperCase(); return (p[0][0]+p[p.length-1][0]).toUpperCase();}
+  function color(team){return teams[team]||'#999'}
+  function el(n){ return document.createElementNS('http://www.w3.org/2000/svg', n); }
+
+  function textAt(x,y,txt,fs=12,fill="#fff",anchor='middle'){
+    const e=el('text'); e.setAttribute('x',x); e.setAttribute('y',y); e.setAttribute('font-size',fs); e.setAttribute('dominant-baseline','middle'); e.setAttribute('text-anchor',anchor); e.setAttribute('fill',fill); e.textContent=txt; return e;
+  }
+
+  function initFromText(){
+    teams = {}; document.getElementById('teams').value.split(/\r?\n/).forEach(l=>{l=l.trim(); if(!l) return; const i=l.indexOf(','); if(i<0) return; teams[l.slice(0,i).trim()] = l.slice(i+1).trim();});
+    people = []; let pid=1; document.getElementById('people').value.split(/\r?\n/).forEach(l=>{l=l.trim(); if(!l) return; const i=l.indexOf(','); if(i<0) return; const name=l.slice(0,i).trim(); const team=l.slice(i+1).trim(); people.push({id:pid++, name, team, initials:toInitials(name)});});
+    projects = document.getElementById('projects').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean).sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base'}));
+  }
+
+  function populatePersonFilter() {
+    const container = document.getElementById('multiSelectContainer');
+    container.innerHTML = '';
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'multiselect-container';
+
+    const button = document.createElement('button');
+    button.className = 'multiselect-button';
+    button.textContent = 'Highlight People';
+    button.addEventListener('click', (e) => {
+        e.stopPropagation();
+        panel.classList.toggle('show');
+    });
+
+    const panel = document.createElement('div');
+    panel.className = 'multiselect-panel';
+
+    const updateSelection = () => {
+        highlightedPersonIds = Array.from(panel.querySelectorAll('input:checked')).map(cb => parseInt(cb.value, 10));
+        
+        if (highlightedPersonIds.length === 0) {
+            button.textContent = 'Highlight People';
+        } else if (highlightedPersonIds.length === 1) {
+            const person = people.find(p => p.id === highlightedPersonIds[0]);
+            button.textContent = person.name;
+        } else {
+            button.textContent = `${highlightedPersonIds.length} people selected`;
+        }
+        drawSlices();
+    };
+
+    people.forEach(p => {
+        const label = document.createElement('label');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = p.id;
+        checkbox.addEventListener('change', updateSelection);
+        
+        label.appendChild(checkbox);
+        label.appendChild(document.createTextNode(p.name));
+        panel.appendChild(label);
+    });
+
+    wrapper.appendChild(button);
+    wrapper.appendChild(panel);
+    container.appendChild(wrapper);
+  }
+
+  // Close dropdown if clicked outside
+  window.addEventListener('click', function(e) {
+      const panel = document.querySelector('.multiselect-panel');
+      if (panel && !panel.parentElement.contains(e.target)) {
+          panel.classList.remove('show');
+      }
+  });
+
+  function rowTop(r){ let y = TOP; for(let i=0;i<r;i++) y += rowHeights[i]; return y; }
+  function cellBounds(r,q){ return {x:LEFT+q*COLW, y:rowTop(r), w:COLW, h:rowHeights[r]}; }
+  function headerBounds(q){ return {x:LEFT+q*COLW, y:TOP-HEADER_H, w:COLW, h:HEADER_H}; }
+
+  function sizeSVG(){ const totalH = rowTop(projects.length-1) + rowHeights[rowHeights.length-1]; const w = Math.max(LEFT + COLS*COLW + 60, 1500); const h = Math.max(totalH + 60, 800); svg.setAttribute('width', w); svg.setAttribute('height', h); }
+  function clearSVG(){ while(svg.firstChild) svg.removeChild(svg.firstChild); }
+
+  function slicePath(cx,cy,r,piece){ const ang0 = piece * Math.PI/2; const ang1 = ang0 + Math.PI/2; const x0 = cx + r*Math.cos(ang0), y0 = cy + r*Math.sin(ang0); const x1 = cx + r*Math.cos(ang1), y1 = cy + r*Math.sin(ang1); return `M ${cx} ${cy} L ${x0} ${y0} A ${r} ${r} 0 0 1 ${x1} ${y1} Z`; }
+
+  function buildSlices(){
+    slices=[]; seq=1;
+    people.forEach(p=>{ for(let q=0;q<4;q++){ for(let piece=0; piece<4; piece++){
+      const hb = headerBounds(q);
+      const idx=(p.id-1); const col = idx % 6; const row = Math.floor(idx/6);
+      const cx = hb.x + STAGE_OFFSET_X + col*STAGE_GAP;
+      const cy = hb.y + STAGE_OFFSET_Y + row*STAGE_GAP;
+      slices.push({id:seq++, person_id:p.id, quarter:q, piece, r:SLICE_R, cx, cy, assigned:false, project_index:null});
+    } } });
+  }
+
+  function colorForSlice(s){ const team = people.find(pp=>pp.id===s.person_id).team; return color(team); }
+  function initialsFor(s){ return people.find(pp=>pp.id===s.person_id).initials; }
+
+  function drawGrid(){
+    for(let q=0;q<COLS;q++){
+      const hb = headerBounds(q);
+      const hbRect = el('rect'); hbRect.setAttribute('x',hb.x); hbRect.setAttribute('y',hb.y); hbRect.setAttribute('width',hb.w); hbRect.setAttribute('height',hb.h); hbRect.setAttribute('fill', q%2?'#f7f7f7':'#eef6ff'); hbRect.setAttribute('stroke','#e5e7eb'); svg.appendChild(hbRect);
+      let lbl = textAt(hb.x + hb.w/2, hb.y + 18, quarters[q], 14, '#111'); lbl.setAttribute('text-anchor','middle'); svg.appendChild(lbl);
+      let sub = textAt(hb.x + 8, hb.y + 36, 'Drag slices ↓', 11, '#374151', 'start'); svg.appendChild(sub);
+      const vl = el('line'); vl.setAttribute('x1', hb.x); vl.setAttribute('y1', TOP); vl.setAttribute('x2', hb.x); vl.setAttribute('y2', rowTop(projects.length-1)+rowHeights[rowHeights.length-1]); vl.setAttribute('stroke','#e5e7eb'); svg.appendChild(vl);
+    }
+    for(let r=0;r<projects.length;r++){
+      const y = rowTop(r); const h = rowHeights[r];
+      const lb = el('rect'); lb.setAttribute('x',0); lb.setAttribute('y',y); lb.setAttribute('width',LEFT); lb.setAttribute('height',h); lb.setAttribute('fill', r%2?'#fff':'#fafafa'); svg.appendChild(lb);
+      const name = textAt(12, y + h/2, projects[r], 14, '#111', 'start'); name.setAttribute('dominant-baseline','middle'); svg.appendChild(name);
+      const hl = el('line'); hl.setAttribute('x1',0); hl.setAttribute('y1',y); hl.setAttribute('x2', LEFT + COLS*COLW); hl.setAttribute('y2',y); hl.setAttribute('stroke','#e5e7eb'); svg.appendChild(hl);
+      for(let q=0;q<COLS;q++){
+        const b = cellBounds(r,q); const rect = el('rect'); rect.setAttribute('x',b.x); rect.setAttribute('y',b.y); rect.setAttribute('width',b.w); rect.setAttribute('height',b.h); rect.setAttribute('fill','#fff'); rect.setAttribute('stroke','#f3f4f6'); svg.appendChild(rect);
+      }
+    }
+    const bottomY = rowTop(projects.length-1)+rowHeights[rowHeights.length-1];
+    const bottom=el('line'); bottom.setAttribute('x1',0); bottom.setAttribute('y1', bottomY); bottom.setAttribute('x2', LEFT + COLS*COLW); bottom.setAttribute('y2', bottomY); bottom.setAttribute('stroke','#e5e7eb'); svg.appendChild(bottom);
+  }
+
+  function drawSlices(){
+    svg.querySelectorAll('g.slice').forEach(n=>n.remove());
+    slices.forEach(s=>{
+      const g = el('g'); g.setAttribute('class','slice'); g.setAttribute('data-id', s.id);
+      
+      if (highlightedPersonIds.length > 0 && !highlightedPersonIds.includes(s.person_id)) {
+          g.setAttribute('opacity', '0.1');
+      }
+
+      const path = el('path'); path.setAttribute('d', slicePath(s.cx, s.cy, s.r, s.piece)); path.setAttribute('fill', colorForSlice(s)); path.setAttribute('stroke','#111'); path.setAttribute('stroke-width','1.5'); path.setAttribute('opacity', s.assigned? '1':'0.92'); g.appendChild(path);
+      const mid = (s.piece + 0.5) * Math.PI/2;
+      const lx = s.cx + (SLICE_LABEL_R * s.r) * Math.cos(mid);
+      const ly = s.cy + (SLICE_LABEL_R * s.r) * Math.sin(mid);
+      const label = textAt(lx, ly, initialsFor(s), SLICE_LABEL_FONTSIZE, '#fff', 'middle'); g.appendChild(label);
+      svg.appendChild(g);
+    });
+  }
+
+  function cellCenters(r,q){
+    const b = cellBounds(r,q);
+    const padX = padBase; const padY = padBase + (r===0 ? EXTRA_TOP_PAD_FIRST_ROW : 0);
+    const perRow = Math.max(1, Math.floor((b.w-2*padX)/gap));
+    const perCol = Math.max(1, Math.floor((b.h-2*padY)/gap));
+    const centers=[];
+    for(let rr=0; rr<perCol; rr++){
+      for(let cc=0; cc<perRow; cc++){
+        centers.push({x: b.x + padX + cc*gap, y: b.y + padY + rr*gap});
+      }
+    }
+    return {centers, perRow, perCol, padX, padY};
+  }
+
+  function groupsInCell(r,q){
+    const arr = slices.filter(s=> s.assigned && s.project_index===r && s.quarter===q);
+    const byPerson = new Map();
+    for(const s of arr){ if(!byPerson.has(s.person_id)) byPerson.set(s.person_id, []); byPerson.get(s.person_id).push(s); }
+    return Array.from(byPerson.values());
+  }
+
+  function recomputeRowHeights(){
+    rowHeights = projects.map(_=>BASE_ROWH);
+    for(let r=0;r<projects.length;r++){
+      let requiredH = BASE_ROWH + (r===0?EXTRA_TOP_PAD_FIRST_ROW:0);
+      for(let q=0;q<COLS;q++){
+        const groups = groupsInCell(r,q).length;
+        if(groups>0){
+          const {perRow, padY} = cellCenters(r,q);
+          const rowsNeeded = Math.ceil(groups / perRow);
+          const hNeeded = Math.max(requiredH, padY*2 + rowsNeeded*gap);
+          requiredH = Math.max(requiredH, hNeeded);
+        }
+      }
+      rowHeights[r] = requiredH;
+    }
+  }
+
+  function relayoutAssignedCenters(){
+    for(let r=0;r<projects.length;r++){
+      for(let q=0;q<COLS;q++){
+        const {centers} = cellCenters(r,q);
+        const groups = groupsInCell(r,q);
+        for(let i=0;i<groups.length;i++){
+          const c = centers[Math.min(i, centers.length-1)] || centers[centers.length-1];
+          for(const s of groups[i]){ s.cx = c.x; s.cy = c.y; s.assigned = true; s.project_index = r; }
+        }
+      }
+    }
+  }
+
+  function pickSliceAt(x,y){
+    for(let i=slices.length-1;i>=0;i--){ const s=slices[i]; const dx=x-s.cx, dy=y-s.cy; const dist2=dx*dx+dy*dy; if(dist2>=(s.r*s.r)) continue; let ang=Math.atan2(dy,dx); if(ang<0) ang+=2*Math.PI; const start=s.piece*(Math.PI/2); const end=start+Math.PI/2; if(ang>=start && ang<=end){ return s; } }
+    return null;
+  }
+
+  let cur=null, dx=0, dy=0;
+  function toSvg(e){ const p=svg.createSVGPoint(); p.x=e.clientX; p.y=e.clientY; return p.matrixTransform(svg.getScreenCTM().inverse()); }
+  svg.addEventListener('pointerdown', e=>{ e.preventDefault(); const p=toSvg(e); const s=pickSliceAt(p.x,p.y); if(!s) return; cur=s; dx=p.x-s.cx; dy=p.y-s.cy; svg.setPointerCapture && svg.setPointerCapture(e.pointerId); svg.classList.add('dragging'); });
+  svg.addEventListener('pointermove', e=>{ if(!cur) return; e.preventDefault(); const p=toSvg(e); cur.cx=p.x-dx; cur.cy=p.y-dy; drawSlices(); });
+  function endDrag(e){ if(!cur) return; const p=toSvg(e); const q = cur.quarter; let placed=false; for(let r=0;r<projects.length;r++){
+      const b = cellBounds(r,q);
+      if(p.x>=b.x && p.x<=b.x+b.w && p.y>=b.y && p.y<=b.y+b.h){
+        const targetGroups = groupsInCell(r,q).length;
+        const center = groupCenterFor(r,q,cur.person_id);
+        cur.cx=center.x; cur.cy=center.y; cur.assigned=true; cur.project_index=r; placed=true; break;
+      }
+    }
+    if(!placed){ const hb = headerBounds(q); const idx = (cur.person_id-1); const col = idx % 6; const row = Math.floor(idx/6); cur.cx = hb.x + STAGE_OFFSET_X + col*STAGE_GAP; cur.cy = hb.y + STAGE_OFFSET_Y + row*STAGE_GAP; cur.assigned=false; cur.project_index=null; }
+    svg.releasePointerCapture && svg.releasePointerCapture(e.pointerId); svg.classList.remove('dragging'); cur=null; recomputeRowHeights(); relayoutAssignedCenters(); redraw(); }
+  svg.addEventListener('pointerup', endDrag); svg.addEventListener('pointerleave', endDrag);
+
+  function groupCenterFor(r,q,person_id){ const placed = slices.filter(s=> s.assigned && s.project_index===r && s.quarter===q && s.person_id===person_id); if(placed.length){ return {x: placed[0].cx, y: placed[0].cy}; } const {centers} = cellCenters(r,q); const used = new Set(slices.filter(s=> s.assigned && s.project_index===r && s.quarter===q).map(s=> `${s.cx},${s.cy}`)); for(const c of centers){ if(!used.has(`${c.x},${c.y}`)) return c; } return centers.length? centers[centers.length-1] : {x: cellBounds(r,q).x + padBase + SLICE_R, y: cellBounds(r,q).y + padBase + SLICE_R}; }
+
+  function exportCSV(){ const header=['Person','Initials','Team','Quarter','Project','SlicePiece']; const rows = slices.filter(s=>s.assigned && s.project_index!=null).map(s=>{ const p=people.find(pp=>pp.id===s.person_id); return {Person:p.name, Initials:p.initials, Team:p.team, Quarter:quarters[s.quarter], Project:projects[s.project_index], SlicePiece:s.piece}; }); const csv=[header.join(',')].concat(rows.map(r=> header.map(h=>`"${String(r[h]).replace(/"/g,'""')}"`).join(','))).join('\n'); const blob=new Blob([csv],{type:'text/csv'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='allocations.csv'; a.click(); URL.revokeObjectURL(url); }
+
+  function redraw(){ clearSVG(); sizeSVG(); drawGrid(); drawSlices(); }
+  function build(){ 
+    initFromText(); 
+    populatePersonFilter();
+    COLW = Math.max(220, Math.min(320, Math.floor((svg.parentElement.clientWidth - 64 - LEFT)/COLS))); 
+    rowHeights = projects.map(_=>BASE_ROWH + EXTRA_TOP_PAD_FIRST_ROW); 
+    buildSlices(); 
+    recomputeRowHeights(); 
+    relayoutAssignedCenters(); 
+    redraw(); 
+    status.textContent='Built. Bigger slices, per-slice initials, and extra padding to avoid spillover.'; 
+  }
+  function clearAll(){ slices.forEach(s=>{ s.assigned=false; s.project_index=null; const hb=headerBounds(s.quarter); const idx=(s.person_id-1); const col=idx%6; const row=Math.floor(idx/6); s.cx=hb.x+STAGE_OFFSET_X+col*STAGE_GAP; s.cy=hb.y+STAGE_OFFSET_Y+row*STAGE_GAP; }); rowHeights = projects.map(_=>BASE_ROWH + EXTRA_TOP_PAD_FIRST_ROW); redraw(); status.textContent='Cleared.'; }
+
+  BTN('build').addEventListener('click', build);
+  BTN('clear').addEventListener('click', clearAll);
+  BTN('export').addEventListener('click', exportCSV);
+
+  build();
+})();
+</script>
+</body>
+</html>
