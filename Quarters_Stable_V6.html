@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Resource Planner – Modern</title>
+<!-- Added Tailwind CSS for modern styling -->
+<script src="https://cdn.tailwindcss.com"></script>
+<!-- Added Google Fonts for better typography -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /*
+    Modernized CSS using a mix of Tailwind's @apply for existing classes
+    and new custom styles. This approach keeps the JS intact while
+    overhauling the look and feel.
+  */
+  :root {
+    /* Refreshed color palette using a modern blue/slate theme */
+    --line: #e2e8f0;      /* slate-200 */
+    --ink: #1e293b;       /* slate-800 */
+    --muted-bg: #f8fafc;  /* slate-50 */
+    --accent: #38bdf8;    /* sky-400 */
+    --accent-hover: #0ea5e9; /* sky-500 */
+    --secondary-bg: #f1f5f9; /* slate-100 */
+    --secondary-text: #334155; /* slate-700 */
+    --white: #ffffff;
+    --black: #000000;
+  }
+
+  /* Base body styles */
+  body {
+    font-family: 'Inter', system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Arial, sans-serif;
+    color: var(--ink);
+    background-color: var(--muted-bg);
+  }
+
+  .font-bebas {
+    font-family: 'Bebas Neue', sans-serif;
+  }
+
+  /* Custom styles for elements that are dynamically generated or need specific overrides */
+  textarea, input[type="month"], input[type="number"] {
+    @apply w-full p-2 border border-slate-300 rounded-md shadow-sm focus:ring-2 focus:ring-sky-500 focus:border-sky-500 transition duration-150 ease-in-out text-sm bg-white;
+  }
+
+  /* SVG specific styles that can't use Tailwind classes directly */
+  #grid {
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .slice {
+    cursor: grab;
+  }
+  .dragging {
+    cursor: grabbing !important;
+  }
+
+  /* Styling for the custom multi-select dropdown - REMOVED */
+</style>
+</head>
+<body class="h-screen flex flex-col antialiased">
+
+<!-- Header: Modernized with Tailwind CSS classes -->
+<header class="flex items-center justify-between p-3 border-b border-slate-200 bg-white shadow-sm gap-4">
+  <!-- Left Aligned: Title and Help -->
+  <div class="flex items-center gap-2">
+      <h1 class="font-bebas text-3xl font-bold text-slate-800 tracking-wider">Resource Planner</h1>
+      <button id="helpBtn" class="p-1 text-slate-500 hover:text-slate-800 transition-colors rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-400">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" class="h-5 w-5" viewBox="0 0 16 16">
+          <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14zm0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16z"/>
+          <path d="M5.255 5.786a.237.237 0 0 0 .241.247h.825c.138 0 .248-.113.266-.25.09-.656.54-1.134 1.342-1.134.686 0 1.314.343 1.314 1.168 0 .635-.374.927-.965 1.371-.673.489-1.206 1.06-1.168 1.987l.003.217a.25.25 0 0 0 .25.246h.811a.25.25 0 0 0 .25-.25v-.105c0-.718.273-.927 1.01-1.486.609-.463 1.244-.977 1.244-2.056 0-1.511-1.276-2.241-2.673-2.241-1.267 0-2.655.59-2.75 2.286zm1.557 5.763c0 .533.425.927 1.01.927.609 0 1.028-.394 1.028-.927 0-.552-.42-.94-1.029-.94-.584 0-1.009.388-1.009.94z"/>
+        </svg>
+      </button>
+  </div>
+  
+  <!-- Center: Multi-select for highlighting people -->
+  <div class="flex-shrink-0 flex items-center gap-2">
+      <div id="multiSelectContainer"></div>
+      <button id="clearHighlight" class="px-4 py-2 text-sm font-semibold text-slate-700 bg-slate-100 rounded-lg shadow-sm hover:bg-slate-200 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-400">Clear Highlight</button>
+  </div>
+
+
+  <!-- Right Aligned: Action Buttons -->
+  <div class="flex items-center gap-2">
+    <button id="import" class="px-4 py-2 text-sm font-semibold text-slate-700 bg-slate-100 rounded-lg shadow-sm hover:bg-slate-200 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-400">Import CSV</button>
+    <button id="export" class="px-4 py-2 text-sm font-semibold text-slate-700 bg-slate-100 rounded-lg shadow-sm hover:bg-slate-200 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-400">Export CSV</button>
+    <button id="build" class="px-4 py-2 text-sm font-semibold text-white bg-sky-500 rounded-lg shadow-sm hover:bg-sky-600 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-sky-500">Build / Rebuild</button>
+  </div>
+</header>
+
+<!-- Main content wrapper -->
+<div class="flex flex-1 min-h-0">
+  <!-- Left Sidebar -->
+  <div class="w-[360px] border-r border-slate-200 p-4 overflow-y-auto bg-slate-50 flex-shrink-0">
+    <div class="space-y-6">
+      <!-- Planning Mode Controls -->
+      <div class="p-3 bg-slate-100 rounded-lg">
+        <h3 class="text-sm font-medium text-slate-600 mb-2">Planning Mode</h3>
+        <div class="flex items-center gap-4">
+          <label class="flex items-center gap-2 text-sm">
+            <input type="radio" name="planningMode" value="quarters" checked>
+            Quarters
+          </label>
+          <label class="flex items-center gap-2 text-sm">
+            <input type="radio" name="planningMode" value="months">
+            Months
+          </label>
+        </div>
+        <div id="monthOptions" class="mt-4 space-y-3 hidden">
+           <div>
+              <label class="text-xs font-medium text-slate-500" for="startMonth">Start Date</label>
+              <input type="month" id="startMonth" class="mt-1 font-mono text-sm">
+           </div>
+           <div>
+              <label class="text-xs font-medium text-slate-500" for="numMonths">Number of Months</label>
+              <input type="number" id="numMonths" value="12" min="1" max="48" class="mt-1 font-mono text-sm">
+           </div>
+        </div>
+      </div>
+
+      <div>
+        <h3 class="text-sm font-medium text-slate-600 mb-2">Teams (one per line)</h3>
+        <textarea id="teams" class="h-48">Design
+Engineering
+QA
+PM</textarea>
+      </div>
+      <div>
+        <h3 class="text-sm font-medium text-slate-600 mb-2">People (name,team)</h3>
+        <textarea id="people" class="h-48">Alice Brown,Design
+Ben Carter,Engineering
+Chloe Diaz,QA
+Derek Evans,Engineering
+Priya Gupta,PM</textarea>
+      </div>
+      <div>
+        <h3 class="text-sm font-medium text-slate-600 mb-2">Projects (one per line)</h3>
+        <textarea id="projects" class="h-48">Apollo
+Borealis
+Comet
+Delta
+Eclipse</textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Panel with SVG Grid -->
+  <div class="flex-1 flex flex-col min-w-0 bg-slate-50">
+    <div class="flex-1 overflow-auto p-4">
+      <div class="bg-white rounded-lg shadow-sm border border-slate-200">
+        <svg id="grid" width="1800" height="1100" aria-label="Grid"></svg>
+      </div>
+    </div>
+    <div id="status" class="text-xs text-slate-500 px-4 py-2 border-t border-slate-200 bg-white">Ready.</div>
+  </div>
+</div>
+
+<!-- Help Modal -->
+<div id="modalBackdrop" class="fixed inset-0 bg-black bg-opacity-60 hidden z-40 transition-opacity duration-300"></div>
+<div id="helpModal" class="fixed inset-0 hidden z-50 flex items-center justify-center p-4 transition-opacity duration-300">
+  <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl transform transition-all scale-95 opacity-0">
+    <div class="flex items-center justify-between p-4 border-b border-slate-200">
+      <h2 class="text-xl font-semibold text-slate-800">How to Use the Planner</h2>
+      <button id="closeModalBtn" class="text-slate-400 hover:text-slate-600 transition-colors rounded-full p-1 focus:outline-none focus:ring-2 focus:ring-slate-400">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="currentColor" viewBox="0 0 16 16">
+          <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+        </svg>
+      </button>
+    </div>
+    <div class="p-6 space-y-4 text-slate-600">
+      <p>This planner helps you allocate team resources across different projects and quarters.</p>
+      <ul class="list-disc list-inside space-y-2">
+        <li><strong>Planning Mode:</strong> Choose to plan by <strong>Quarters</strong> (a fixed 4-column view) or by <strong>Months</strong> (a dynamic view where you set the start date and duration).</li>
+        <li><strong>Editing Data:</strong> Update the lists of teams, people, and projects. Click <strong>Build / Rebuild</strong> to see your changes.</li>
+        <li><strong>Dragging Slices:</strong> Drag any slice of a person's circle from the header onto a project row to assign them.</li>
+        <li><strong>Multi-Drag:</strong> Hold down the <strong>Shift</strong> key and click multiple slices to select them. Drag one to move the entire group.</li>
+        <li><strong>Highlighting People:</strong> Use the "Highlight People" list to focus on individuals. Hold <strong>Ctrl</strong> (or <strong>Cmd</strong> on Mac) to select multiple names.</li>
+        <li><strong>Exporting:</strong> Click <strong>Export CSV</strong> to download a spreadsheet of the current allocations. The format will match the current planning mode.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- Hidden file input for CSV import -->
+<input type="file" id="importFile" accept=".csv" class="hidden">
+
+<script>
+(function(){
+  const svg = document.getElementById('grid');
+  const status = document.getElementById('status');
+  const BTN = id=>document.getElementById(id);
+
+  // --- State Variables ---
+  let planningMode = 'quarters';
+  let columnHeaders = ['Q1','Q2','Q3','Q4'];
+  let COLS = 4;
+
+  // Layout constants
+  const LEFT = 240;
+  const HEADER_Y = 20; // New constant for the header's fixed top position
+  let TOP; // The grid's top position will be calculated from the header height.
+  const BASE_ROWH = 100;
+  let COLW = 280;
+  let dynamicHeaderH = 140;
+  const HEADER_BASE_PADDING = 60; // For title, etc.
+  const padBase = 24;
+  const EXTRA_TOP_PAD_FIRST_ROW = 18;
+  const gap = 64;
+  const STAGE_GAP = 60;
+  const STAGE_OFFSET_X = 32;
+  const STAGE_OFFSET_Y = 80; // Increased to give header text more space
+
+  // Slice visuals
+  const SLICE_R = 27;
+  const SLICE_LABEL_R = 0.62;
+  const SLICE_LABEL_FONTSIZE = 11;
+
+  let teams = {};
+  let people = [];
+  let projects = [];
+  let slices = [];
+  let rowHeights = [];
+  let seq = 1;
+  let highlightedPersonIds = [];
+  
+  // State for multi-slice selection and dragging
+  let multiSelectIds = new Set();
+  let draggingSlices = [];
+  let dragStartPoint = null;
+
+  // Predefined Google Calendar-inspired color palette for teams
+  const teamColors = [
+    '#7986cb', '#33b679', '#8e24aa', '#e67c73', '#f6bf26', '#f4511e',
+    '#039be5', '#616161', '#3f51b5', '#0b8043', '#d50000', '#e4c441',
+    '#7cb342', '#fb8c00', '#1e88e5', '#d81b60', '#5e35b1', '#00acc1',
+    '#00897b', '#546e7a'
+  ];
+
+  // Color variables from CSS for JS usage
+  const colors = {
+      line: getComputedStyle(document.documentElement).getPropertyValue('--line').trim(),
+      ink: getComputedStyle(document.documentElement).getPropertyValue('--ink').trim(),
+      secondaryText: getComputedStyle(document.documentElement).getPropertyValue('--secondary-text').trim(),
+      white: getComputedStyle(document.documentElement).getPropertyValue('--white').trim(),
+      black: getComputedStyle(document.documentElement).getPropertyValue('--black').trim(),
+      q1Bg: '#f0f9ff', // sky-50
+      q2Bg: '#fafafa', // neutral-50
+  };
+
+  function toInitials(n){const p=n.trim().split(/\s+/).filter(Boolean); if(p.length===0) return ''; if(p.length===1) return p[0].slice(0,2).toUpperCase(); return (p[0][0]+p[p.length-1][0]).toUpperCase();}
+  function color(team){return teams[team]||'#999'}
+  function el(n){ return document.createElementNS('http://www.w3.org/2000/svg', n); }
+
+  function textAt(x,y,txt,fs=12,fill=colors.white,anchor='middle'){
+    const e=el('text'); e.setAttribute('x',x); e.setAttribute('y',y); e.setAttribute('font-size',fs); e.setAttribute('font-weight', '500'); e.setAttribute('dominant-baseline','middle'); e.setAttribute('text-anchor',anchor); e.setAttribute('fill',fill); e.textContent=txt; return e;
+  }
+
+  function initFromText(){
+    // Auto-assign colors to teams from the predefined palette
+    teams = {};
+    document.getElementById('teams').value.split(/\r?\n/).forEach((line, index) => {
+      const teamName = line.trim();
+      if (!teamName) return;
+      teams[teamName] = teamColors[index % teamColors.length];
+    });
+
+    people = []; let pid=1; document.getElementById('people').value.split(/\r?\n/).forEach(l=>{l=l.trim(); if(!l) return; const i=l.indexOf(','); if(i<0) return; const name=l.slice(0,i).trim(); const team=l.slice(i+1).trim(); people.push({id:pid++, name, team, initials:toInitials(name)});});
+    projects = document.getElementById('projects').value.split(/\r?\n/).map(s=>s.trim()).filter(Boolean).sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base'}));
+  }
+
+  function populatePersonFilter() {
+    const container = document.getElementById('multiSelectContainer');
+    container.innerHTML = '';
+
+    // Use a standard <select> element with the 'multiple' attribute
+    const select = document.createElement('select');
+    select.multiple = true;
+    select.className = 'bg-white border border-slate-300 rounded-lg px-2 py-1 text-sm text-slate-700 shadow-sm focus:ring-2 focus:ring-offset-2 focus:ring-sky-500 focus:outline-none';
+    select.setAttribute('size', '4');
+    select.setAttribute('title', 'Hold Ctrl (or Cmd) to select multiple people');
+
+    people.forEach(p => {
+        const option = document.createElement('option');
+        option.value = p.id;
+        option.textContent = p.name;
+        option.className = 'p-1';
+        select.appendChild(option);
+    });
+
+    select.addEventListener('change', () => {
+        const selectedOptions = Array.from(select.selectedOptions);
+        highlightedPersonIds = selectedOptions.map(opt => parseInt(opt.value, 10));
+        drawSlices();
+    });
+    
+    const instruction = document.createElement('span');
+    instruction.textContent = 'Highlight People:';
+    instruction.className = 'text-sm font-medium text-slate-700 mr-2';
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'flex items-center';
+    wrapper.appendChild(instruction);
+    wrapper.appendChild(select);
+    container.appendChild(wrapper);
+  }
+
+  function rowTop(r){ let y = TOP; for(let i=0;i<r;i++) y += rowHeights[i]; return y; }
+  function cellBounds(r,q){ return {x:LEFT+q*COLW, y:rowTop(r), w:COLW, h:rowHeights[r]}; }
+  function headerBounds(q){ return {x:LEFT+q*COLW, y:HEADER_Y, w:COLW, h:dynamicHeaderH}; }
+
+  function sizeSVG(){ 
+    const totalH = rowTop(projects.length-1) + rowHeights[rowHeights.length-1];
+    const w = LEFT + COLS*COLW + 60; 
+    const h = Math.max(totalH + 60, 800); 
+    svg.setAttribute('width', w); 
+    svg.setAttribute('height', h); 
+  }
+
+  function clearSVG(){ while(svg.firstChild) svg.removeChild(svg.firstChild); }
+
+  function slicePath(cx,cy,r,piece){ const ang0 = piece * Math.PI/2; const ang1 = ang0 + Math.PI/2; const x0 = cx + r*Math.cos(ang0), y0 = cy + r*Math.sin(ang0); const x1 = cx + r*Math.cos(ang1), y1 = cy + r*Math.sin(ang1); return `M ${cx} ${cy} L ${x0} ${y0} A ${r} ${r} 0 0 1 ${x1} ${y1} Z`; }
+
+  function buildSlices() {
+    slices = [];
+    seq = 1;
+    people.forEach(p => {
+        for (let q = 0; q < COLS; q++) { // Use dynamic COLS value
+            for (let piece = 0; piece < 4; piece++) {
+                slices.push({
+                    id: seq++,
+                    person_id: p.id,
+                    period_index: q, // Renamed for clarity
+                    piece,
+                    r: SLICE_R,
+                    cx: 0, cy: 0,
+                    assigned: false,
+                    project_index: null
+                });
+            }
+        }
+    });
+}
+
+  function colorForSlice(s){ const team = people.find(pp=>pp.id===s.person_id).team; return color(team); }
+  function initialsFor(s){ return people.find(pp=>pp.id===s.person_id).initials; }
+
+  function drawGrid(){
+    const fullHeaderBg = el('rect');
+    fullHeaderBg.setAttribute('x', LEFT);
+    fullHeaderBg.setAttribute('y', HEADER_Y);
+    fullHeaderBg.setAttribute('width', COLS * COLW);
+    fullHeaderBg.setAttribute('height', dynamicHeaderH);
+    fullHeaderBg.setAttribute('fill', colors.white);
+    fullHeaderBg.setAttribute('stroke', colors.line);
+    svg.appendChild(fullHeaderBg);
+
+    for(let q=0;q<COLS;q++){
+      const hb = headerBounds(q);
+      const hbRect = el('rect'); hbRect.setAttribute('x',hb.x); hbRect.setAttribute('y',hb.y); hbRect.setAttribute('width',hb.w); hbRect.setAttribute('height',hb.h); hbRect.setAttribute('fill', q%2 ? colors.q2Bg : colors.q1Bg); hbRect.setAttribute('stroke', colors.line); svg.appendChild(hbRect);
+      let lbl = textAt(hb.x + hb.w/2, hb.y + 20, columnHeaders[q], 14, colors.ink); lbl.setAttribute('text-anchor','middle'); lbl.setAttribute('font-weight', '600'); svg.appendChild(lbl);
+      let sub = textAt(hb.x + 12, hb.y + 42, 'Drag slices ↓', 11, colors.secondaryText, 'start'); svg.appendChild(sub);
+      const vl = el('line'); vl.setAttribute('x1', hb.x); vl.setAttribute('y1', TOP); vl.setAttribute('x2', hb.x); vl.setAttribute('y2', rowTop(projects.length-1)+rowHeights[rowHeights.length-1]); vl.setAttribute('stroke', colors.line); svg.appendChild(vl);
+    }
+    for(let r=0;r<projects.length;r++){
+      const y = rowTop(r); const h = rowHeights[r];
+      const lb = el('rect'); lb.setAttribute('x',0); lb.setAttribute('y',y); lb.setAttribute('width',LEFT); lb.setAttribute('height',h); lb.setAttribute('fill', r%2 ? colors.white : '#fafafa'); svg.appendChild(lb);
+      const name = textAt(16, y + h/2, projects[r], 14, colors.ink, 'start'); name.setAttribute('dominant-baseline','middle'); svg.appendChild(name);
+      const hl = el('line'); hl.setAttribute('x1',0); hl.setAttribute('y1',y); hl.setAttribute('x2', LEFT + COLS*COLW); hl.setAttribute('y2',y); hl.setAttribute('stroke',colors.line); svg.appendChild(hl);
+      for(let q=0;q<COLS;q++){
+        const b = cellBounds(r,q); const rect = el('rect'); rect.setAttribute('x',b.x); rect.setAttribute('y',b.y); rect.setAttribute('width',b.w); rect.setAttribute('height',b.h); rect.setAttribute('fill',colors.white); rect.setAttribute('stroke','#f8fafc'); svg.appendChild(rect);
+      }
+    }
+    const bottomY = rowTop(projects.length-1)+rowHeights[rowHeights.length-1];
+    const bottom=el('line'); bottom.setAttribute('x1',0); bottom.setAttribute('y1', bottomY); bottom.setAttribute('x2', LEFT + COLS*COLW); bottom.setAttribute('y2', bottomY); bottom.setAttribute('stroke',colors.line); svg.appendChild(bottom);
+  }
+
+  function drawSankeyLinks() {
+    // This function is called after slices are drawn. It inserts the link paths
+    // BEFORE the slice elements in the DOM, so they appear underneath.
+    if (highlightedPersonIds.length === 0) return;
+
+    const firstSliceElement = svg.querySelector('.slice');
+    if (!firstSliceElement) return; // No slices on the board to link to
+
+    highlightedPersonIds.forEach(person_id => {
+        const personSlices = slices.filter(s => s.person_id === person_id && s.assigned);
+        if (personSlices.length < 2) return;
+
+        // Find the center point for each period this person is assigned to
+        const periodCenters = {};
+        personSlices.forEach(s => {
+            if (!periodCenters[s.period_index]) {
+                periodCenters[s.period_index] = { x: s.cx, y: s.cy };
+            }
+        });
+
+        // Get a sorted list of the periods the person works in
+        const sortedPeriods = Object.keys(periodCenters).map(Number).sort((a, b) => a - b);
+        const personData = people.find(p => p.id === person_id);
+        const linkColor = color(personData.team);
+
+        // Draw a curved path between each consecutive period
+        for (let i = 0; i < sortedPeriods.length - 1; i++) {
+            const p1_idx = sortedPeriods[i];
+            const p2_idx = sortedPeriods[i + 1];
+
+            // Only draw links between adjacent columns
+            if (p2_idx - p1_idx !== 1) continue;
+
+            const p1 = periodCenters[p1_idx];
+            const p2 = periodCenters[p2_idx];
+
+            const path = el('path');
+            const midX = (p1.x + p2.x) / 2;
+            const midY = (p1.y + p2.y) / 2 + 40; // Control point for a gentle curve
+            
+            path.setAttribute('d', `M ${p1.x} ${p1.y} Q ${midX} ${midY} ${p2.x} ${p2.y}`);
+            path.setAttribute('class', 'sankey-link'); // Class for easy clearing
+            path.setAttribute('stroke', linkColor);
+            path.setAttribute('stroke-width', '4');
+            path.setAttribute('stroke-opacity', '0.6');
+            path.setAttribute('fill', 'none');
+            
+            // Insert the link before the first slice to render it underneath
+            svg.insertBefore(path, firstSliceElement);
+        }
+    });
+  }
+
+  function drawSlices(){
+    // Clear previous drawings
+    svg.querySelectorAll('g.slice').forEach(n=>n.remove());
+    svg.querySelectorAll('.sankey-link').forEach(n => n.remove());
+
+    slices.forEach(s=>{
+      const g = el('g'); g.setAttribute('class','slice'); g.setAttribute('data-id', s.id);
+      
+      if (highlightedPersonIds.length > 0 && !highlightedPersonIds.includes(s.person_id)) {
+          g.setAttribute('opacity', '0.1');
+      }
+
+      const isSelected = multiSelectIds.has(s.id);
+      const path = el('path'); 
+      path.setAttribute('d', slicePath(s.cx, s.cy, s.r, s.piece)); 
+      path.setAttribute('fill', colorForSlice(s)); 
+      path.setAttribute('opacity', s.assigned ? '1' : '0.92'); 
+      
+      if (isSelected) {
+        path.setAttribute('stroke', '#0ea5e9');
+        path.setAttribute('stroke-width', '3');
+      } else {
+        path.setAttribute('stroke',colors.black); 
+        path.setAttribute('stroke-width','1'); 
+        path.setAttribute('stroke-opacity', '0.2'); 
+      }
+      
+      g.appendChild(path);
+      const mid = (s.piece + 0.5) * Math.PI/2;
+      const lx = s.cx + (SLICE_LABEL_R * s.r) * Math.cos(mid);
+      const ly = s.cy + (SLICE_LABEL_R * s.r) * Math.sin(mid);
+      const label = textAt(lx, ly, initialsFor(s), SLICE_LABEL_FONTSIZE, colors.white, 'middle'); g.appendChild(label);
+      svg.appendChild(g);
+    });
+
+    // After all slices are drawn, draw the links so we have the correct coordinates
+    drawSankeyLinks();
+  }
+
+  function cellCenters(r,q){
+    const b = cellBounds(r,q);
+    const padX = padBase; const padY = padBase + (r===0 ? EXTRA_TOP_PAD_FIRST_ROW : 0);
+    const perRow = Math.max(1, Math.floor((b.w-2*padX)/gap));
+    const perCol = Math.max(1, Math.floor((b.h-2*padY)/gap));
+    const centers=[];
+    for(let rr=0; rr<perCol; rr++){
+      for(let cc=0; cc<perRow; cc++){
+        centers.push({x: b.x + padX + cc*gap, y: b.y + padY + rr*gap});
+      }
+    }
+    return {centers, perRow, perCol, padX, padY};
+  }
+
+  function groupsInCell(r,q){
+    const arr = slices.filter(s=> s.assigned && s.project_index===r && s.period_index===q);
+    const byPerson = new Map();
+    for(const s of arr){ if(!byPerson.has(s.person_id)) byPerson.set(s.person_id, []); byPerson.get(s.person_id).push(s); }
+    return Array.from(byPerson.values());
+  }
+
+  function recomputeRowHeights(){
+    rowHeights = projects.map(_=>BASE_ROWH);
+    for(let r=0;r<projects.length;r++){
+      let requiredH = BASE_ROWH + (r===0?EXTRA_TOP_PAD_FIRST_ROW:0);
+      for(let q=0;q<COLS;q++){
+        const groups = groupsInCell(r,q).length;
+        if(groups>0){
+          const {perRow, padY} = cellCenters(r,q);
+          const rowsNeeded = Math.ceil(groups / perRow);
+          const hNeeded = Math.max(requiredH, padY*2 + rowsNeeded*gap);
+          requiredH = Math.max(requiredH, hNeeded);
+        }
+      }
+      rowHeights[r] = requiredH;
+    }
+  }
+
+  function relayoutAssignedCenters(){
+    for(let r=0;r<projects.length;r++){
+      for(let q=0;q<COLS;q++){
+        const {centers} = cellCenters(r,q);
+        const groups = groupsInCell(r,q);
+        for(let i=0;i<groups.length;i++){
+          const c = centers[Math.min(i, centers.length-1)] || centers[centers.length-1];
+          for(const s of groups[i]){ s.cx = c.x; s.cy = c.y; s.assigned = true; s.project_index = r; }
+        }
+      }
+    }
+  }
+
+  function pickSliceAt(x,y){
+    for(let i=slices.length-1;i>=0;i--){ const s=slices[i]; const dx=x-s.cx, dy=y-s.cy; const dist2=dx*dx+dy*dy; if(dist2>=(s.r*s.r)) continue; let ang=Math.atan2(dy,dx); if(ang<0) ang+=2*Math.PI; const start=s.piece*(Math.PI/2); const end=start+Math.PI/2; if(ang>=start && ang<=end){ return s; } }
+    return null;
+  }
+
+  function toSvg(e){ const p=svg.createSVGPoint(); p.x=e.clientX; p.y=e.clientY; return p.matrixTransform(svg.getScreenCTM().inverse()); }
+
+  svg.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    const p = toSvg(e);
+    const s = pickSliceAt(p.x, p.y);
+
+    if (!s) {
+      if (!e.shiftKey) { multiSelectIds.clear(); drawSlices(); }
+      return;
+    }
+
+    if (e.shiftKey) {
+      if (multiSelectIds.has(s.id)) { multiSelectIds.delete(s.id); } 
+      else { multiSelectIds.add(s.id); }
+      drawSlices();
+      return;
+    }
+
+    dragStartPoint = { x: p.x, y: p.y };
+
+    if (multiSelectIds.has(s.id)) {
+      draggingSlices = slices.filter(sl => multiSelectIds.has(sl.id));
+    } else {
+      multiSelectIds.clear();
+      draggingSlices = [s];
+    }
+
+    draggingSlices.forEach(ds => { ds.startX = ds.cx; ds.startY = ds.cy; });
+
+    svg.setPointerCapture && svg.setPointerCapture(e.pointerId);
+    svg.classList.add('dragging');
+  });
+
+  svg.addEventListener('pointermove', e => {
+    if (draggingSlices.length === 0) return;
+    e.preventDefault();
+    const p = toSvg(e);
+    const dx = p.x - dragStartPoint.x;
+    const dy = p.y - dragStartPoint.y;
+    draggingSlices.forEach(s => { s.cx = s.startX + dx; s.cy = s.startY + dy; });
+    drawSlices();
+  });
+
+  function endDrag(e){
+    if (draggingSlices.length === 0) return;
+
+    const p = toSvg(e);
+    const refSlice = draggingSlices[0];
+    const targetQ = refSlice.period_index;
+    let placed = false;
+    let targetR = null;
+
+    for (let r = 0; r < projects.length; r++) {
+      const b = cellBounds(r, targetQ);
+      if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) {
+        placed = true;
+        targetR = r;
+        break;
+      }
+    }
+    
+    draggingSlices.forEach(s => {
+      if (placed) {
+        s.period_index = targetQ;
+        s.project_index = targetR;
+        s.assigned = true;
+      } else {
+        s.assigned = false;
+        s.project_index = null;
+      }
+    });
+
+    svg.releasePointerCapture && svg.releasePointerCapture(e.pointerId);
+    svg.classList.remove('dragging');
+
+    draggingSlices.forEach(s => { delete s.startX; delete s.startY; });
+    draggingSlices = [];
+    dragStartPoint = null;
+
+    recomputeHeaderHeightAndLayoutSlices();
+    recomputeRowHeights();
+    relayoutAssignedCenters();
+    redraw();
+  }
+  
+  svg.addEventListener('pointerup', endDrag); 
+  svg.addEventListener('pointerleave', endDrag);
+
+  function recomputeHeaderHeightAndLayoutSlices() {
+    let maxRows = 0;
+    const unassignedSlicesByPeriod = Array.from({ length: COLS }, () => new Set());
+    slices.forEach(s => {
+        if (!s.assigned) {
+            unassignedSlicesByPeriod[s.period_index].add(s.person_id);
+        }
+    });
+
+    for (let q = 0; q < COLS; q++) {
+        const hb = headerBounds(q);
+        const perRow = Math.max(1, Math.floor((hb.w - STAGE_OFFSET_X) / STAGE_GAP));
+        const personIds = Array.from(unassignedSlicesByPeriod[q]);
+        
+        personIds.forEach((person_id, idx) => {
+            const col = idx % perRow;
+            const row = Math.floor(idx / perRow);
+            
+            slices.filter(s => s.person_id === person_id && s.period_index === q && !s.assigned)
+                  .forEach(s => {
+                      s.cx = hb.x + STAGE_OFFSET_X + col * STAGE_GAP;
+                      s.cy = hb.y + STAGE_OFFSET_Y + row * STAGE_GAP;
+                  });
+        });
+        
+        const rowsNeeded = Math.ceil(personIds.length / perRow);
+        if (rowsNeeded > maxRows) {
+            maxRows = rowsNeeded;
+        }
+    }
+
+    dynamicHeaderH = HEADER_BASE_PADDING + (maxRows > 0 ? maxRows * STAGE_GAP : STAGE_GAP);
+    TOP = HEADER_Y + dynamicHeaderH + 20;
+}
+
+  function groupCenterFor(r,q,person_id){ const placed = slices.filter(s=> s.assigned && s.project_index===r && s.period_index===q && s.person_id===person_id); if(placed.length){ return {x: placed[0].cx, y: placed[0].cy}; } const {centers} = cellCenters(r,q); const used = new Set(slices.filter(s=> s.assigned && s.project_index===r && s.period_index===q).map(s=> `${s.cx},${s.cy}`)); for(const c of centers){ if(!used.has(`${c.x},${c.y}`)) return c; } return centers.length? centers[centers.length-1] : {x: cellBounds(r,q).x + padBase + SLICE_R, y: cellBounds(r,q).y + padBase + SLICE_R}; }
+
+  function exportCSV(){ 
+    const timeHeader = planningMode === 'quarters' ? 'Quarter' : 'Month';
+    const header=['Person','Initials','Team', timeHeader,'Project','SlicePiece']; 
+    const rows = slices.filter(s=>s.assigned && s.project_index!=null).map(s=>{ 
+      const p=people.find(pp=>pp.id===s.person_id); 
+      return {
+        Person:p.name, 
+        Initials:p.initials, 
+        Team:p.team, 
+        [timeHeader]:columnHeaders[s.period_index], 
+        Project:projects[s.project_index], 
+        SlicePiece:s.piece
+      }; 
+    }); 
+    const csv=[header.join(',')].concat(rows.map(r=> header.map(h=>`"${String(r[h]).replace(/"/g,'""')}"`).join(','))).join('\n'); 
+    const blob=new Blob([csv],{type:'text/csv'}); 
+    const url=URL.createObjectURL(blob); 
+    const a=document.createElement('a'); 
+    a.href=url; a.download='allocations.csv'; 
+    a.click(); 
+    URL.revokeObjectURL(url); 
+  }
+
+  function processImport(csvText) {
+    try {
+      const lines = csvText.trim().split(/\r?\n/);
+      const headerLine = lines.shift();
+      const header = headerLine.split(',').map(h => h.replace(/"/g, ''));
+      
+      const timeHeader = header.find(h => h === 'Quarter' || h === 'Month');
+      if (!timeHeader) throw new Error('CSV must contain either a "Quarter" or "Month" column.');
+
+      const requiredCols = ['Person', 'Project', 'SlicePiece', timeHeader];
+      const colIndices = {};
+      requiredCols.forEach(col => {
+        const index = header.indexOf(col);
+        if (index === -1) throw new Error(`CSV is missing required column: ${col}`);
+        colIndices[col] = index;
+      });
+
+      slices.forEach(s => { s.assigned = false; s.project_index = null; });
+      let assignmentsMade = 0;
+      lines.forEach(line => {
+        const values = line.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(v => v.replace(/"/g, ''));
+
+        const personName = values[colIndices.Person];
+        const periodName = values[colIndices[timeHeader]];
+        const projectName = values[colIndices.Project];
+        const slicePiece = parseInt(values[colIndices.SlicePiece], 10);
+        
+        const person = people.find(p => p.name === personName);
+        const projectIndex = projects.indexOf(projectName);
+        const periodIndex = columnHeaders.indexOf(periodName);
+
+        if (person && projectIndex > -1 && periodIndex > -1 && !isNaN(slicePiece)) {
+          const sliceToUpdate = slices.find(s => 
+            s.person_id === person.id && 
+            s.period_index === periodIndex && 
+            s.piece === slicePiece
+          );
+          if (sliceToUpdate) {
+            sliceToUpdate.assigned = true;
+            sliceToUpdate.project_index = projectIndex;
+            assignmentsMade++;
+          }
+        }
+      });
+      
+      status.textContent = assignmentsMade > 0 ? `Import successful. ${assignmentsMade} slice(s) assigned.` : 'Import complete. No valid assignments found in file.';
+    } catch (error) {
+      status.textContent = `Import failed: ${error.message}`;
+      console.error("Import error:", error);
+    }
+    recomputeHeaderHeightAndLayoutSlices();
+    recomputeRowHeights();
+    relayoutAssignedCenters();
+    redraw();
+  }
+
+  function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => processImport(e.target.result);
+    reader.onerror = () => { status.textContent = 'Error reading file.'; };
+    reader.readAsText(file);
+    event.target.value = '';
+  }
+
+  function redraw(){ clearSVG(); sizeSVG(); drawGrid(); drawSlices(); }
+
+  function build(){ 
+    planningMode = document.querySelector('input[name="planningMode"]:checked').value;
+    
+    // Configure based on mode
+    if (planningMode === 'quarters') {
+        columnHeaders = ['Q1','Q2','Q3','Q4'];
+        COLS = 4;
+    } else {
+        const startDate = new Date(BTN('startMonth').value + '-02'); // Use day 2 to avoid timezone issues
+        const numMonths = parseInt(BTN('numMonths').value, 10);
+        columnHeaders = [];
+        for (let i = 0; i < numMonths; i++) {
+            const date = new Date(startDate.getFullYear(), startDate.getMonth() + i, 2);
+            const month = date.toLocaleString('default', { month: 'short' });
+            const year = date.getFullYear().toString().slice(-2);
+            columnHeaders.push(`${month} '${year}`);
+        }
+        COLS = numMonths;
+    }
+    
+    initFromText(); 
+    populatePersonFilter();
+
+    const gridContainerWidth = svg.parentElement.clientWidth;
+    const minContentWidth = (planningMode === 'quarters' ? 1500 : COLS * 280) - LEFT - 60;
+    const availableWidth = Math.max(gridContainerWidth - LEFT, minContentWidth);
+    
+    COLW = Math.max(180, Math.floor(availableWidth / COLS)); 
+    
+    rowHeights = projects.map(_=>BASE_ROWH + EXTRA_TOP_PAD_FIRST_ROW); 
+    buildSlices();
+    recomputeHeaderHeightAndLayoutSlices();
+    TOP = HEADER_Y + dynamicHeaderH + 20;
+    recomputeRowHeights(); 
+    relayoutAssignedCenters(); 
+    redraw(); 
+    status.textContent='Planner built successfully.'; 
+  }
+
+  function clearHighlight() {
+    const select = document.querySelector('#multiSelectContainer select');
+    if (select) {
+        Array.from(select.options).forEach(option => option.selected = false);
+    }
+    highlightedPersonIds = [];
+    drawSlices();
+    status.textContent = 'Highlight cleared.';
+  }
+  
+  // --- Event Listeners ---
+  BTN('build').addEventListener('click', build);
+  BTN('clearHighlight').addEventListener('click', clearHighlight);
+  BTN('export').addEventListener('click', exportCSV);
+  BTN('import').addEventListener('click', () => BTN('importFile').click());
+  BTN('importFile').addEventListener('change', handleFileSelect);
+
+  document.querySelectorAll('input[name="planningMode"]').forEach(radio => {
+    radio.addEventListener('change', (e) => {
+      planningMode = e.target.value;
+      document.getElementById('monthOptions').classList.toggle('hidden', planningMode !== 'months');
+    });
+  });
+
+  // Modal logic
+  const helpBtn = document.getElementById('helpBtn');
+  const helpModal = document.getElementById('helpModal');
+  const modalBackdrop = document.getElementById('modalBackdrop');
+  const closeModalBtn = document.getElementById('closeModalBtn');
+  const modalContent = helpModal.querySelector('.transform');
+
+  const openModal = () => {
+    helpModal.classList.remove('hidden');
+    modalBackdrop.classList.remove('hidden');
+    setTimeout(() => {
+      modalBackdrop.classList.add('opacity-100');
+      modalContent.classList.remove('scale-95', 'opacity-0');
+      modalContent.classList.add('scale-100', 'opacity-100');
+    }, 10);
+  };
+
+  const closeModal = () => {
+    modalBackdrop.classList.remove('opacity-100');
+    modalContent.classList.add('scale-95', 'opacity-0');
+    modalContent.classList.remove('scale-100', 'opacity-100');
+    setTimeout(() => {
+      helpModal.classList.add('hidden');
+      modalBackdrop.classList.add('hidden');
+    }, 300);
+  };
+
+  helpBtn.addEventListener('click', openModal);
+  closeModalBtn.addEventListener('click', closeModal);
+  modalBackdrop.addEventListener('click', closeModal);
+
+  // --- Initial Setup ---
+  function initialize() {
+    // Set default start month to the current month
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = (now.getMonth() + 1).toString().padStart(2, '0');
+    BTN('startMonth').value = `${year}-${month}`;
+
+    build();
+  }
+
+  initialize();
+})();
+</script>
+</body>
+</html>
+
+
